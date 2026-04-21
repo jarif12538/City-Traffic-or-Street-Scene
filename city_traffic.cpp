@@ -1,60 +1,54 @@
-/*
- * ============================================================
- *  CITY TRAFFIC SCENE  –  OpenGL + GLUT
- *  Computer Graphics Project
- * ============================================================
- *  Features implemented
- *  ─────────────────────────────────────────────────────────
- *  Graphics Primitives  : points, lines, polygons, circles
- *  Algorithms           : DDA Line, Bresenham Line,
- *                         Midpoint Circle
- *  2D Transformations   : translation, rotation, scaling,
- *                         reflection, shear
- *  Animated Objects     : moving cars (left & right lanes),
- *                         cycling traffic light,
- *                         moving sun + drifting clouds
- *  Theme                : Day-time city street scene
- * ============================================================
- *  Build (Linux / macOS)
- *    g++ city_traffic.cpp -o city_traffic -lGL -lGLU -lglut -lm
- *  Build (Windows – MinGW)
- *    g++ city_traffic.cpp -o city_traffic -lopengl32 -lglu32 -lfreeglut -lm
- * ============================================================
- */
-
+//rafi
+//---------------------------
 #include <GL/glut.h>
 #include <cmath>
 #include <vector>
 #include <string>
 
-// ──────────────────────────────────────────────
-//  Window dimensions
-// ──────────────────────────────────────────────
-const int W = 900, H = 600;
+const int W = 1000, H = 700;
 
-// ──────────────────────────────────────────────
 //  Global animation state
-// ──────────────────────────────────────────────
-float carX1      = -250.0f;   // car going right (lane 1)
-float carX2      =  250.0f;   // car going left  (lane 2)
-float sunAngle   =  30.0f;    // degrees from horizon
+float car1X      = -250.0f;
+float car2X      =  250.0f;
+float bus1X      = -200.0f;
+float bike1X     =  300.0f;
+float truck1X    = -400.0f;
+
+float sunAngle   =  60.0f;    
 float cloud1X    = -350.0f;
 float cloud2X    =  100.0f;
-int   tlPhase    =  0;        // 0=red 1=yellow 2=green
+float cloud3X    =  250.0f;
+
+int   tlPhase    =  0;
 float tlTimer    =  0.0f;
-const float TL_RED_DUR    = 3.0f;
-const float TL_YELLOW_DUR = 1.0f;
-const float TL_GREEN_DUR  = 3.0f;
+const float TL_RED_DUR    = 4.0f;
+const float TL_YELLOW_DUR = 1.5f;
+const float TL_GREEN_DUR  = 3.5f;
 
-// ──────────────────────────────────────────────
-//  Colour helpers
-// ──────────────────────────────────────────────
-void setColor(float r, float g, float b){ glColor3f(r,g,b); }
+bool isNightMode = false;
+float dayNightBlend = 0.0f;
 
-// ══════════════════════════════════════════════
+void setColor(float r, float g, float b)
+{
+    glColor3f(r, g, b);
+}
+
+void setColorAlpha(float r, float g, float b, float a)
+{
+    glColor4f(r, g, b, a);
+}
+
+void blendColor(float r1, float g1, float b1,
+                float r2, float g2, float b2, float t)
+{
+    float r = r1 * (1 - t) + r2 * t;
+    float g = g1 * (1 - t) + g2 * t;
+    float b = b1 * (1 - t) + b2 * t;
+    glColor3f(r, g, b);
+}
+
 //  ALGORITHM 1 – DDA Line
-//  Used for road lane markings
-// ══════════════════════════════════════════════
+
 void ddaLine(float x1, float y1, float x2, float y2)
 {
     float dx = x2 - x1, dy = y2 - y1;
@@ -70,10 +64,8 @@ void ddaLine(float x1, float y1, float x2, float y2)
     glEnd();
 }
 
-// ══════════════════════════════════════════════
 //  ALGORITHM 2 – Bresenham Line
-//  Used for building outlines / window grids
-// ══════════════════════════════════════════════
+
 void bresenhamLine(int x1, int y1, int x2, int y2)
 {
     int dx = abs(x2-x1), dy = abs(y2-y1);
@@ -91,14 +83,11 @@ void bresenhamLine(int x1, int y1, int x2, int y2)
     glEnd();
 }
 
-// ══════════════════════════════════════════════
 //  ALGORITHM 3 – Midpoint Circle
-//  Used for wheels, sun, traffic-light bulbs
-// ══════════════════════════════════════════════
+
 void midpointCircle(float cx, float cy, float r, bool filled=false)
 {
     if(filled){
-        // filled via triangle fan
         glBegin(GL_TRIANGLE_FAN);
         glVertex2f(cx, cy);
         for(int a=0; a<=360; a+=2)
@@ -126,9 +115,8 @@ void midpointCircle(float cx, float cy, float r, bool filled=false)
     glEnd();
 }
 
-// ──────────────────────────────────────────────
-//  Solid polygon helper
-// ──────────────────────────────────────────────
+//  Solid polygon helpers
+
 void drawRect(float x, float y, float w, float h)
 {
     glBegin(GL_QUADS);
@@ -139,102 +127,128 @@ void drawRect(float x, float y, float w, float h)
     glEnd();
 }
 
-// ══════════════════════════════════════════════
-//  2D TRANSFORMATION UTILITIES
-// ══════════════════════════════════════════════
+void drawTriangle(float x1, float y1, float x2, float y2, float x3, float y3)
+{
+    glBegin(GL_TRIANGLES);
+    glVertex2f(x1, y1);
+    glVertex2f(x2, y2);
+    glVertex2f(x3, y3);
+    glEnd();
+}
 
-// Translation – push/pop matrix + translate
+void drawGradientRect(float x, float y, float w, float h,
+                      float r1, float g1, float b1,
+                      float r2, float g2, float b2)
+{
+    glBegin(GL_QUADS);
+    glColor3f(r1, g1, b1); glVertex2f(x,   y);
+    glColor3f(r2, g2, b2); glVertex2f(x+w, y);
+    glColor3f(r2, g2, b2); glVertex2f(x+w, y+h);
+    glColor3f(r1, g1, b1); glVertex2f(x,   y+h);
+    glEnd();
+}
+
+//  2D TRANSFORMATION UTILITIES
+
 void applyTranslation(float tx, float ty)
 {
     glTranslatef(tx, ty, 0.0f);
 }
 
-// Rotation around arbitrary point
 void applyRotationAround(float angle, float cx, float cy)
 {
     glTranslatef(cx, cy, 0);
-    glRotatef(angle, 0,0,1);
-    glTranslatef(-cx,-cy,0);
+    glRotatef(angle, 0, 0, 1);
+    glTranslatef(-cx, -cy, 0);
 }
 
-// Uniform scaling around a centre
 void applyScalingAround(float sx, float sy, float cx, float cy)
 {
     glTranslatef(cx, cy, 0);
     glScalef(sx, sy, 1);
-    glTranslatef(-cx,-cy,0);
+    glTranslatef(-cx, -cy, 0);
 }
 
-// Reflection about Y-axis  (scale x by -1)
 void applyReflectionY(float cx, float cy)
 {
     glTranslatef(cx, cy, 0);
     glScalef(-1, 1, 1);
-    glTranslatef(-cx,-cy,0);
+    glTranslatef(-cx, -cy, 0);
 }
 
-// Shear in X direction
-void applyShearX(float shx)
+
+//  this is our shado effect
+
+void drawShadow(float x, float y, float w, float h)
 {
-    float m[16] = {
-        1,0,0,0,
-        shx,1,0,0,
-        0,0,1,0,
-        0,0,0,1
-    };
-    glMultMatrixf(m);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0, 0, 0, 0.15f);
+    drawRect(x, y - 5, w, 4);
+    glDisable(GL_BLEND);
 }
+ //rafi end
 
-// ══════════════════════════════════════════════
-//  SCENE COMPONENTS
-// ══════════════════════════════════════════════
 
-// ── Sky gradient (two quads blended) ──────────
+
+//shakib start----------------------------------------
+// sky seen
 void drawSky()
 {
-    glBegin(GL_QUADS);
-      glColor3f(0.53f, 0.81f, 0.98f); glVertex2f(-450,-20);
-      glColor3f(0.53f, 0.81f, 0.98f); glVertex2f( 450,-20);
-      glColor3f(0.18f, 0.55f, 0.90f); glVertex2f( 450, 300);
-      glColor3f(0.18f, 0.55f, 0.90f); glVertex2f(-450, 300);
-    glEnd();
-}
+    if(isNightMode){
+        
+        glBegin(GL_QUADS);
+        glColor3f(0.1f, 0.1f, 0.2f); glVertex2f(-500, -20);
+        glVertex2f(500, -20);
+        glColor3f(0.05f, 0.05f, 0.15f); glVertex2f(500, 350);
+        glVertex2f(-500, 350);
+        glEnd();
+    } else {
+        
+        glBegin(GL_QUADS);
+        glColor3f(1.0f, 0.9f, 0.7f); glVertex2f(-500, -20);   
+        glColor3f(1.0f, 0.9f, 0.7f); glVertex2f(500, -20);
+        glColor3f(1.0f, 0.6f, 0.3f); glVertex2f(500, 200);    
+        glColor3f(0.9f, 0.5f, 0.4f); glVertex2f(-500, 200);
 
-// ── Sun (Midpoint circle + rays via DDA) ──────
-void drawSun()
-{
-    // Sun position derived from angle
-    float rad = sunAngle * M_PI / 180.0f;
-    float sx  = -300.0f + 320.0f * cosf(rad);
-    float sy  =  -10.0f + 200.0f * sinf(rad);
-
-    // Glow
-    setColor(1.0f, 0.95f, 0.5f);
-    midpointCircle(sx, sy, 28, true);
-    // Core
-    setColor(1.0f, 0.88f, 0.2f);
-    midpointCircle(sx, sy, 20, true);
-    // Outline
-    setColor(1.0f, 0.7f, 0.0f);
-    glPointSize(2.0f);
-    midpointCircle(sx, sy, 20, false);
-
-    // Rays using DDA lines
-    setColor(1.0f, 0.9f, 0.3f);
-    glPointSize(1.5f);
-    for(int a=0; a<360; a+=45){
-        float ar = a*M_PI/180.0f;
-        ddaLine(sx + 22*cosf(ar), sy + 22*sinf(ar),
-                sx + 36*cosf(ar), sy + 36*sinf(ar));
+        glColor3f(0.9f, 0.5f, 0.4f); glVertex2f(-500, 200);
+        glColor3f(0.9f, 0.5f, 0.4f); glVertex2f(500, 200);
+        glColor3f(0.6f, 0.4f, 0.7f); glVertex2f(500, 350);   
+        glColor3f(0.6f, 0.4f, 0.7f); glVertex2f(-500, 350);
+        glEnd();
     }
 }
 
-// ── Cloud (group of circles) ──────────────────
+// Sun
+void drawSun()
+{
+    float rad = sunAngle * M_PI / 180.0f;
+    float sx  = -250.0f + 300.0f * cosf(rad);
+    float sy  = 0.0f + 180.0f * sinf(rad);
+
+    if(isNightMode){
+        setColor(0.7f, 0.7f, 0.3f);
+        midpointCircle(sx, sy, 16, true);
+    } else {
+        
+        setColor(1.0f, 0.8f, 0.2f);
+        midpointCircle(sx, sy, 30, true);
+        setColor(1.0f, 0.7f, 0.1f);
+        midpointCircle(sx, sy, 25, true);
+    }
+}
+
+// our clouds
 void drawCloud(float cx, float cy, float scale)
 {
     glPushMatrix();
     applyScalingAround(scale, scale, cx, cy);
-    setColor(1,1,1);
+
+    if(isNightMode)
+        setColor(0.35f, 0.35f, 0.4f);
+    else
+        setColor(1.0f, 0.95f, 0.85f);  
+
     midpointCircle(cx,      cy,     22, true);
     midpointCircle(cx+25,   cy+5,   18, true);
     midpointCircle(cx-22,   cy+5,   16, true);
@@ -243,278 +257,462 @@ void drawCloud(float cx, float cy, float scale)
     glPopMatrix();
 }
 
-// ── Ground / road ─────────────────────────────
+//  road 
 void drawRoad()
 {
-    // Grass / ground
-    setColor(0.3f, 0.6f, 0.2f);
-    drawRect(-450, -300, 900, 200);   // bottom strip
+   
+    setColor(0.35f, 0.65f, 0.25f); 
+    drawRect(-500, -350, 1000, 180);
 
-    // Road surface
-    setColor(0.22f, 0.22f, 0.22f);
-    drawRect(-450, -220, 900, 170);
+    drawGradientRect(-500, -220, 1000, 170,
+                     0.4f, 0.4f, 0.38f,
+                     0.35f, 0.35f, 0.32f);
 
-    // Pavement kerbs
-    setColor(0.75f, 0.75f, 0.75f);
-    drawRect(-450, -225, 900, 8);
-    drawRect(-450, -55,  900, 8);
+    setColor(0.72f, 0.72f, 0.7f);
+    drawRect(-500, -225, 1000, 8);
+    drawRect(-500, -50,   1000, 8);
 
-    // Centre divider (yellow solid line – Bresenham)
-    setColor(1.0f, 0.85f, 0.0f);
-    glPointSize(3.0f);
-    bresenhamLine(-450, -138, 450, -138);
+    
+    setColor(1.0f, 0.88f, 0.1f);
+    glPointSize(3.5f);
+    bresenhamLine(-500, -138, 500, -138);
 
-    // Dashed white lane markings using DDA
-    setColor(1,1,1);
+    setColor(1.0f, 1.0f, 1.0f);
     glPointSize(2.5f);
-    for(int x = -440; x < 450; x += 60){
-        ddaLine((float)x,       -175.0f,
-                (float)(x+35),  -175.0f);
-        ddaLine((float)x,       -100.0f,
-                (float)(x+35),  -100.0f);
+    for(int x = -500; x < 500; x += 70){
+        float offset = (x + 500) * 0.02f;
+        ddaLine((float)x, -175.0f + offset,
+                (float)(x+40), -175.0f + offset);
+        ddaLine((float)x, -100.0f + offset,
+                (float)(x+40), -100.0f + offset);
+    }
+
+    for(int x = -450; x < 500; x += 150){
+        setColor(0.25f, 0.25f, 0.25f);
+        drawRect(x - 2, -145, 4, 25);
+
+        if(isNightMode)
+            setColor(1.0f, 0.95f, 0.6f);
+        else
+            setColor(0.85f, 0.85f, 0.8f);
+        drawRect(x - 6, -120, 12, 8);
+
+        if(isNightMode){
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            setColorAlpha(1.0f, 0.95f, 0.5f, 0.2f);
+            midpointCircle(x, -116, 28, true);
+            glDisable(GL_BLEND);
+        }
     }
 }
 
-// ── Building (with Bresenham window grid) ─────
+void drawZebraCrossing(float x, float y, float width)
+{
+    float stripeWidth = width / 12.0f;
+    setColor(1.0f, 1.0f, 1.0f);
+    for(int i = 0; i < 12; i += 2){
+        drawRect(x + i*stripeWidth, y, stripeWidth, 40);
+    }
+}
+
+//  buildings
 void drawBuilding(float x, float y, float w, float h,
                   float r, float g, float b,
-                  int wCols, int wRows,
-                  bool sheared=false)
+                  int wCols, int wRows)
 {
     glPushMatrix();
 
-    // Optional shear transform (demonstrates shear)
-    if(sheared){
-        glTranslatef(x, y, 0);
-        applyShearX(0.08f);
-        glTranslatef(-x, -y, 0);
-    }
+    // Warm-toned gradient body
+    drawGradientRect(x, y, w, h,
+                     r*1.1f, g*1.05f, b*0.95f,
+                     r*0.8f, g*0.8f, b*0.75f);
 
-    // Building body
-    setColor(r,g,b);
-    drawRect(x, y, w, h);
+    // Roof accent
+    setColor(r*0.9f, g*0.85f, b*0.8f);
+    drawRect(x-2, y+h, w+4, 6);
 
-    // Roof edge
-    setColor(r*0.7f, g*0.7f, b*0.7f);
-    drawRect(x-3, y+h, w+6, 6);
+    // Peaked roof for modern look
+    setColor(r*0.7f, g*0.65f, b*0.6f);
+    drawTriangle(x, y+h, x+w/2.0f, y+h+12, x+w, y+h);
 
-    // Windows – Bresenham outlines
+    // Windows with subtle glass effect
     float ww = w / (wCols*2.0f+1.0f);
     float wh = h / (wRows*2.5f+1.0f);
+
     for(int row=0; row<wRows; row++){
         for(int col=0; col<wCols; col++){
             float wx = x + ww*(1+col*2);
             float wy = y + wh*(1+row*2);
-            // Lit window fill
-            setColor(1.0f, 0.95f, 0.7f);
+
+            // Glass color
+            if(isNightMode)
+                setColor(0.95f, 0.92f, 0.55f);
+            else
+                setColor(0.75f, 0.88f, 0.98f);
             drawRect(wx, wy, ww, wh);
-            // Bresenham border
-            setColor(0.3f,0.3f,0.3f);
+
+            // Reflection
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            setColorAlpha(1.0f, 1.0f, 1.0f, 0.25f);
+            drawRect(wx + 2, wy + wh - 3, ww/3.0f, 2);
+            glDisable(GL_BLEND);
+
+            // Border
+            setColor(0.25f, 0.25f, 0.25f);
             glPointSize(1.5f);
-            bresenhamLine((int)wx,      (int)wy,
+            bresenhamLine((int)wx, (int)wy,
                           (int)(wx+ww), (int)wy);
             bresenhamLine((int)(wx+ww), (int)wy,
                           (int)(wx+ww), (int)(wy+wh));
             bresenhamLine((int)(wx+ww), (int)(wy+wh),
-                          (int)wx,      (int)(wy+wh));
-            bresenhamLine((int)wx,      (int)(wy+wh),
-                          (int)wx,      (int)wy);
+                          (int)wx, (int)(wy+wh));
+            bresenhamLine((int)wx, (int)(wy+wh),
+                          (int)wx, (int)wy);
         }
     }
 
     glPopMatrix();
 }
 
-// ── Traffic light ─────────────────────────────
+// Traffic light
 void drawTrafficLight(float x, float y)
 {
-    // Pole
-    setColor(0.3f,0.3f,0.3f);
-    drawRect(x-3, y, 6, 80);
+    setColor(0.25f, 0.25f, 0.25f);
+    drawRect(x-3, y, 6, 85);
 
-    // Housing box
-    setColor(0.15f,0.15f,0.15f);
-    drawRect(x-12, y+80, 24, 65);
+    setColor(0.12f, 0.12f, 0.12f);
+    drawRect(x-14, y+82, 28, 70);
 
-    // Bulbs – Midpoint circles
     glPointSize(2.0f);
+
     // Red
-    setColor(tlPhase==0 ? 1.0f:0.3f, 0.0f, 0.0f);
-    midpointCircle(x, y+130, 8, true);
+    float redIntensity = (tlPhase==0) ? 1.0f : 0.2f;
+    setColor(redIntensity, 0.0f, 0.0f);
+    midpointCircle(x, y+135, 10, true);
+    if(tlPhase==0){
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        setColorAlpha(1.0f, 0.2f, 0.2f, 0.3f);
+        midpointCircle(x, y+135, 16, true);
+        glDisable(GL_BLEND);
+    }
+
     // Yellow
-    setColor(tlPhase==1 ? 1.0f:0.3f,
-             tlPhase==1 ? 0.8f:0.3f, 0.0f);
-    midpointCircle(x, y+112, 8, true);
+    float yellowIntensity = (tlPhase==1) ? 1.0f : 0.2f;
+    setColor(yellowIntensity, yellowIntensity*0.8f, 0.0f);
+    midpointCircle(x, y+115, 10, true);
+    if(tlPhase==1){
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        setColorAlpha(1.0f, 0.95f, 0.2f, 0.3f);
+        midpointCircle(x, y+115, 16, true);
+        glDisable(GL_BLEND);
+    }
+
     // Green
-    setColor(0.0f, tlPhase==2 ? 1.0f:0.3f, 0.0f);
-    midpointCircle(x, y+94,  8, true);
+    float greenIntensity = (tlPhase==2) ? 1.0f : 0.2f;
+    setColor(0.0f, greenIntensity, 0.0f);
+    midpointCircle(x, y+95, 10, true);
+    if(tlPhase==2){
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        setColorAlpha(0.2f, 1.0f, 0.2f, 0.3f);
+        midpointCircle(x, y+95, 16, true);
+        glDisable(GL_BLEND);
+    }
 }
 
-// ── Car body (demonstrates translation transform) ─
+// Car
 void drawCar(float cx, float cy, float r, float g, float b, bool facingLeft=false)
 {
     glPushMatrix();
     applyTranslation(cx, cy);
 
-    // Flip if facing left (reflection)
     if(facingLeft)
-        applyReflectionY(0, 0);   // reflect about the car's local Y axis
+        applyReflectionY(0, 0);
 
-    // Body
     setColor(r, g, b);
     drawRect(-35, -12, 70, 22);
 
-    // Cabin (with slight rotation for 2D perspective effect)
-    glPushMatrix();
     setColor(r*0.85f, g*0.85f, b*0.85f);
     drawRect(-22, 10, 44, 18);
-    glPopMatrix();
 
-    // Windshields (Bresenham)
-    setColor(0.6f, 0.85f, 1.0f);
-    drawRect(-21,11, 18,15);
-    drawRect(  3,11, 18,15);
+    setColor(0.65f, 0.88f, 1.0f);
+    drawRect(-21, 11, 18, 15);
+    drawRect(3, 11, 18, 15);
 
-    // Wheels – Midpoint circle
-    setColor(0.1f,0.1f,0.1f);
-    midpointCircle(-20,-12, 10, true);
-    midpointCircle( 20,-12, 10, true);
-    setColor(0.5f,0.5f,0.5f);
-    midpointCircle(-20,-12,  5, true);
-    midpointCircle( 20,-12,  5, true);
+    setColor(0.1f, 0.1f, 0.1f);
+    midpointCircle(-20, -12, 10, true);
+    midpointCircle(20, -12, 10, true);
+    setColor(0.5f, 0.5f, 0.5f);
+    midpointCircle(-20, -12, 5, true);
+    midpointCircle(20, -12, 5, true);
 
-    // Head/tail lights
-    setColor(1.0f, 1.0f, 0.6f);
-    drawRect( 33, -6, 4, 8);   // headlight
+    setColor(1.0f, 1.0f, 0.65f);
+    drawRect(33, -6, 4, 8);
     setColor(0.9f, 0.1f, 0.1f);
-    drawRect(-37, -6, 4, 8);   // tail light
+    drawRect(-37, -6, 4, 8);
+
+    drawShadow(cx - 35, cy - 20, 70, 4);
 
     glPopMatrix();
 }
 
-// ── Pavement trees ────────────────────────────
+// Bus
+void drawBus(float cx, float cy, float r, float g, float b, bool facingLeft=false)
+{
+    glPushMatrix();
+    applyTranslation(cx, cy);
+
+    if(facingLeft)
+        applyReflectionY(0, 0);
+
+    setColor(r, g, b);
+    drawRect(-50, -15, 100, 28);
+
+    setColor(r*0.85f, g*0.85f, b*0.85f);
+    drawRect(-48, 13, 25, 20);
+
+    setColor(0.55f, 0.83f, 1.0f);
+    drawRect(-46, 14, 10, 10);
+    drawRect(-32, 14, 10, 10);
+
+    for(int i = -30; i < 40; i += 20){
+        drawRect(i, 13, 15, 12);
+    }
+
+    setColor(0.1f, 0.1f, 0.1f);
+    midpointCircle(-30, -15, 11, true);
+    midpointCircle(30, -15, 11, true);
+    setColor(0.5f, 0.5f, 0.5f);
+    midpointCircle(-30, -15, 6, true);
+    midpointCircle(30, -15, 6, true);
+
+    setColor(1.0f, 1.0f, 0.7f);
+    drawRect(48, -8, 5, 10);
+
+    drawShadow(cx - 50, cy - 20, 100, 5);
+
+    glPopMatrix();
+}
+
+// Bike
+void drawBike(float cx, float cy, float r, float g, float b, bool facingLeft=false)
+{
+    glPushMatrix();
+    applyTranslation(cx, cy);
+
+    if(facingLeft)
+        applyReflectionY(0, 0);
+
+    setColor(r, g, b);
+    drawRect(-18, -8, 36, 16);
+
+    setColor(0.35f, 0.25f, 0.15f);
+    midpointCircle(-2, 12, 6, true);
+    drawRect(-5, 8, 6, 4);
+
+    setColor(0.05f, 0.05f, 0.05f);
+    midpointCircle(-12, -8, 8, true);
+    midpointCircle(12, -8, 8, true);
+    setColor(0.45f, 0.45f, 0.45f);
+    midpointCircle(-12, -8, 4, true);
+    midpointCircle(12, -8, 4, true);
+
+    setColor(1.0f, 1.0f, 0.55f);
+    drawRect(16, -3, 3, 6);
+
+    drawShadow(cx - 18, cy - 15, 36, 3);
+
+    glPopMatrix();
+}
+
+// Truck
+void drawTruck(float cx, float cy, float r, float g, float b, bool facingLeft=false)
+{
+    glPushMatrix();
+    applyTranslation(cx, cy);
+
+    if(facingLeft)
+        applyReflectionY(0, 0);
+
+    setColor(r, g, b);
+    drawRect(-45, -12, 30, 24);
+
+    setColor(r*0.9f, g*0.9f, b*0.9f);
+    drawRect(-15, -10, 60, 20);
+
+    setColor(0.65f, 0.88f, 1.0f);
+    drawRect(-42, 0, 12, 12);
+
+    setColor(r*0.7f, g*0.7f, b*0.7f);
+    glPointSize(2.0f);
+    ddaLine(-13, 0, 43, 0);
+    ddaLine(-13, 5, 43, 5);
+
+    setColor(0.1f, 0.1f, 0.1f);
+    midpointCircle(-25, -12, 11, true);
+    midpointCircle(15, -12, 11, true);
+    midpointCircle(35, -12, 11, true);
+    setColor(0.5f, 0.5f, 0.5f);
+    midpointCircle(-25, -12, 6, true);
+    midpointCircle(15, -12, 6, true);
+    midpointCircle(35, -12, 6, true);
+
+    setColor(1.0f, 1.0f, 0.7f);
+    drawRect(43, -8, 5, 10);
+    setColor(0.9f, 0.1f, 0.1f);
+    drawRect(-48, -8, 5, 10);
+
+    drawShadow(cx - 45, cy - 20, 105, 5);
+
+    glPopMatrix();
+}
+
+// Tree
 void drawTree(float x, float y, float scale)
 {
     glPushMatrix();
     applyTranslation(x, y);
     applyScalingAround(scale, scale, 0, 0);
 
-    // Trunk
-    setColor(0.45f, 0.30f, 0.10f);
-    drawRect(-5, 0, 10, 40);
+    setColor(0.42f, 0.28f, 0.08f);
+    drawRect(-6, 0, 12, 45);
 
-    // Foliage – three filled circles
-    setColor(0.13f, 0.55f, 0.13f);
-    midpointCircle(0,  60, 28, true);
-    midpointCircle(-18,48, 22, true);
-    midpointCircle( 18,48, 22, true);
+    setColor(0.25f, 0.58f, 0.2f);
+    midpointCircle(0, 70, 35, true);
+
+    setColor(0.3f, 0.65f, 0.25f);
+    midpointCircle(-20, 55, 28, true);
+    midpointCircle(20, 55, 28, true);
+
+    setColor(0.35f, 0.7f, 0.3f);
+    midpointCircle(-28, 40, 20, true);
+    midpointCircle(28, 40, 20, true);
+
+    drawShadow(x - 30*scale, y - 5, 60*scale, 4);
 
     glPopMatrix();
 }
 
-// ── Rotated decorative star / signage ─────────
-void drawRotatedSign(float x, float y, float angle)
+// Pedestrian
+void drawPedestrian(float x, float y, float scale)
 {
     glPushMatrix();
     applyTranslation(x, y);
-    // Rotation transform
-    glRotatef(angle, 0, 0, 1);
+    applyScalingAround(scale, scale, 0, 0);
 
-    // Sign board
-    setColor(0.9f, 0.2f, 0.1f);
-    drawRect(-18, -8, 36, 16);
-    setColor(1,1,1);
-    // Simple cross on sign via DDA
-    glPointSize(2.0f);
-    ddaLine(-12, 0, 12, 0);
-    ddaLine(0, -6, 0,  6);
+    setColor(0.85f, 0.65f, 0.45f);
+    midpointCircle(0, 25, 5, true);
+
+    setColor(0.35f, 0.4f, 0.55f);
+    drawRect(-4, 12, 8, 12);
+
+    setColor(0.25f, 0.25f, 0.25f);
+    drawRect(-3, 0, 3, 12);
+    drawRect(0, 0, 3, 12);
+
+    drawRect(-6, 10, 3, 8);
+    drawRect(3, 10, 3, 8);
 
     glPopMatrix();
 }
+//shakib end----------------------------------------
 
-// ══════════════════════════════════════════════
 //  RENDER – assemble full scene
-// ══════════════════════════════════════════════
 void render()
 {
     glClear(GL_COLOR_BUFFER_BIT);
     glLoadIdentity();
 
-    // ── Sky & atmosphere ──
     drawSky();
     drawSun();
 
-    // ── Clouds ────────────
-    drawCloud(cloud1X,  180, 1.0f);
-    drawCloud(cloud2X,  220, 0.85f);
+    // Clouds
+    drawCloud(cloud1X, 230, 1.0f);
+    drawCloud(cloud2X, 270, 0.9f);
+    drawCloud(cloud3X, 210, 0.8f);
 
-    // ── Buildings (background) ────────────────
-    // Sheared building (demonstrates shear)
-    drawBuilding(-340, -50, 80, 230, 0.55f,0.60f,0.70f, 2,5, true);
-    drawBuilding(-240, -50, 70, 200, 0.65f,0.55f,0.60f, 2,4);
-    drawBuilding(-150, -50, 90, 260, 0.50f,0.55f,0.65f, 3,6);
-    drawBuilding( -40, -50, 60, 180, 0.60f,0.62f,0.58f, 2,4);
-    drawBuilding(  50, -50, 85, 240, 0.58f,0.60f,0.68f, 3,5);
-    drawBuilding( 170, -50, 75, 210, 0.62f,0.58f,0.55f, 2,5);
-    drawBuilding( 270, -50, 95, 280, 0.53f,0.58f,0.67f, 3,6);
-    drawBuilding( 385, -50, 65, 195, 0.60f,0.65f,0.60f, 2,4);
+    // Buildings 
+    drawBuilding(-420, -30, 75, 200, 0.72f, 0.55f, 0.45f, 2, 5);
+    drawBuilding(-330, -40, 85, 240, 0.68f, 0.58f, 0.48f, 2, 5);
+    drawBuilding(-220, -30, 70, 210, 0.75f, 0.60f, 0.50f, 2, 4);
+    drawBuilding(-130, -60, 95, 280, 0.70f, 0.62f, 0.50f, 3, 6);
+    drawBuilding(-15, -40, 65, 220, 0.73f, 0.58f, 0.48f, 2, 4);
+    drawBuilding(70, -80, 90, 320, 0.76f, 0.62f, 0.50f, 3, 7);
+    drawBuilding(180, -50, 80, 250, 0.71f, 0.60f, 0.48f, 2, 5);
+    drawBuilding(280, -70, 100, 290, 0.74f, 0.61f, 0.49f, 3, 6);
+    drawBuilding(400, -40, 85, 240, 0.70f, 0.58f, 0.47f, 2, 5);
 
-    // ── Road ──────────────
     drawRoad();
 
-    // ── Trees on pavement ─
-    drawTree(-380, -220, 0.9f);
-    drawTree(-200, -220, 1.0f);
-    drawTree(  20, -220, 0.95f);
-    drawTree( 200, -220, 1.0f);
-    drawTree( 380, -220, 0.9f);
+    // Zebra crossings
+    drawZebraCrossing(-200, -230, 80);
+    drawZebraCrossing(200, -230, 80);
 
-    // ── Traffic lights ────
-    drawTrafficLight(-100, -220);
-    drawTrafficLight( 100, -220);
+    // Trees
+    drawTree(-380, -240, 1.0f);
+    drawTree(-200, -240, 1.1f);
+    drawTree(0, -240, 0.95f);
+    drawTree(200, -240, 1.0f);
+    drawTree(380, -240, 0.9f);
 
-    // ── Rotating sign ─────
-    // Angle slowly oscillates – using static so it persists
-    static float signAngle = 0.0f;
-    signAngle += 0.3f;
-    drawRotatedSign(-370, -45, signAngle);
-    drawRotatedSign( 370, -45, -signAngle);
+    // Pedestrians
+    drawPedestrian(-280, -300, 1.0f);
+    drawPedestrian(-150, -310, 0.9f);
+    drawPedestrian(80, -305, 1.0f);
+    drawPedestrian(250, -295, 0.95f);
 
-    // ── Cars ──────────────
-    // Car 1 – moving right, upper lane
-    drawCar(carX1, -100, 0.85f, 0.15f, 0.15f, false);
-    // Car 2 – moving left,  lower lane  (reflected)
-    drawCar(carX2, -170, 0.15f, 0.35f, 0.75f, true);
-    // Parked car (scaled down – scaling transform)
-    glPushMatrix();
-    applyScalingAround(0.8f, 0.8f, -250, -185);
-    drawCar(-250, -185, 0.2f, 0.65f, 0.2f, false);
-    glPopMatrix();
+    // Traffic lights
+    drawTrafficLight(-150, -240);
+    drawTrafficLight(150, -240);
+
+    // Vehicles
+    drawCar(car1X, -100, 0.85f, 0.25f, 0.25f, false);
+    drawCar(car2X, -180, 0.25f, 0.45f, 0.80f, true);
+    drawBus(bus1X, -140, 0.75f, 0.25f, 0.25f, false);
+    drawBike(bike1X, -90, 0.85f, 0.55f, 0.25f, true);
+    drawTruck(truck1X, -170, 0.65f, 0.40f, 0.20f, false);
 }
 
-// ══════════════════════════════════════════════
-//  UPDATE – advance animation state
-// ══════════════════════════════════════════════
+//  UPDATE  animation state
 void update(float dt)
 {
-    // Cars
-    carX1 += 80.0f * dt;
-    if(carX1 > 500.0f) carX1 = -500.0f;
+    car1X += 75.0f * dt;
+    if(car1X > 550.0f) car1X = -550.0f;
 
-    carX2 -= 60.0f * dt;
-    if(carX2 < -500.0f) carX2 = 500.0f;
+    car2X -= 65.0f * dt;
+    if(car2X < -550.0f) car2X = 550.0f;
 
-    // Sun arc
-    sunAngle += 2.0f * dt;
+    // Bus stops at red light, continues on green/yellow
+    if(tlPhase != 0){  // tlPhase 0 = red, 1 = yellow, 2 = green
+        bus1X += 50.0f * dt;
+    }
+    if(bus1X > 550.0f) bus1X = -550.0f;
+
+    bike1X -= 100.0f * dt;
+    if(bike1X < -550.0f) bike1X = 550.0f;
+
+    // Truck stops at red light, continues on green/yellow
+    if(tlPhase != 0){  // tlPhase 0 = red, 1 = yellow, 2 = green
+        truck1X += 55.0f * dt;
+    }
+    if(truck1X > 550.0f) truck1X = -550.0f;
+
+    sunAngle += 0.5f * dt;
     if(sunAngle > 150.0f) sunAngle = 10.0f;
 
-    // Clouds drift
-    cloud1X += 15.0f * dt;
-    if(cloud1X > 500.0f) cloud1X = -500.0f;
-    cloud2X += 10.0f * dt;
-    if(cloud2X > 500.0f) cloud2X = -500.0f;
+    cloud1X += 12.0f * dt;
+    if(cloud1X > 550.0f) cloud1X = -550.0f;
 
-    // Traffic light cycle
+    cloud2X += 8.0f * dt;
+    if(cloud2X > 550.0f) cloud2X = -550.0f;
+
+    cloud3X += 10.0f * dt;
+    if(cloud3X > 550.0f) cloud3X = -550.0f;
+
     tlTimer += dt;
     float dur = (tlPhase==0) ? TL_RED_DUR :
                 (tlPhase==1) ? TL_YELLOW_DUR : TL_GREEN_DUR;
@@ -522,15 +720,19 @@ void update(float dt)
         tlTimer = 0.0f;
         tlPhase = (tlPhase + 1) % 3;
     }
+
+    if(isNightMode){
+        dayNightBlend = fminf(1.0f, dayNightBlend + dt * 0.5f);
+    } else {
+        dayNightBlend = fmaxf(0.0f, dayNightBlend - dt * 0.5f);
+    }
 }
 
-// ══════════════════════════════════════════════
 //  GLUT CALLBACKS
-// ══════════════════════════════════════════════
 
-// Fixed timestep: ~60 fps  (16 ms per tick)
+
 const int TIMER_MS = 16;
-const float DT     = TIMER_MS / 1000.0f;
+const float DT = TIMER_MS / 1000.0f;
 
 void display()
 {
@@ -551,19 +753,19 @@ void reshape(int w, int h)
     glViewport(0, 0, w, h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(-450, 450, -300, 300, -1, 1);
+    glOrtho(-500, 500, -350, 350, -1, 1);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 }
 
 void keyboard(unsigned char key, int /*x*/, int /*y*/)
 {
-    if(key == 27) exit(0);   // ESC to quit
+    if(key == 27) exit(0);
+    if(key == 'n' || key == 'N') isNightMode = !isNightMode;
 }
 
-// ══════════════════════════════════════════════
 //  MAIN
-// ══════════════════════════════════════════════
+
 int main(int argc, char** argv)
 {
     glutInit(&argc, argv);
@@ -572,20 +774,17 @@ int main(int argc, char** argv)
     glutInitWindowPosition(100, 80);
     glutCreateWindow("City Traffic Scene");
 
-    // OpenGL state
     glPointSize(2.0f);
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_LINE_SMOOTH);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Set projection once
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(-450, 450, -300, 300, -1, 1);
+    glOrtho(-500, 500, -350, 350, -1, 1);
     glMatrixMode(GL_MODELVIEW);
 
-    // Register callbacks
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
     glutKeyboardFunc(keyboard);
