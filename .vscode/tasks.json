@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build and Run City Traffic Scene",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"g++ -std=c++17 city_traffic.cpp animation.cpp algorithms.cpp -o city_traffic $(pkg-config --cflags glut) $(pkg-config --libs glut) -lGL -lGLU && ./city_traffic"
+			],
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}
